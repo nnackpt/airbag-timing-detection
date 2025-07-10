@@ -8,3 +8,8 @@ Video
 .vscode
 ocr
 Model_Large
+__pycache__
+Outputs
+Screenshots
+Uploads
+Airbag_detection.db

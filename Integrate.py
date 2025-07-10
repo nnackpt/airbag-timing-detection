@@ -7,11 +7,11 @@ from segment_anything import sam_model_registry, SamPredictor
 from ultralytics import YOLO
 
 # ======= CONFIG ============
-YOLO_OBJECT_MODEL_PATH = r"Model\YOLO_OBJECT.pt"  # โมเดลตรวจจับวัตถุ เช่น Airbag
-YOLO_NAME_MODEL_PATH = r"Model\YOLO_NAME.pt"  # โมเดลอ่านชื่อ เช่น FR1, FR2, RE3
+YOLO_OBJECT_MODEL_PATH = r"runs\detect\sam\8m50e\weights\best.pt"  # โมเดลตรวจจับวัตถุ เช่น Airbag
+YOLO_NAME_MODEL_PATH = r"runs\detect\Circle_name\8m50e\weights\best.pt"  # โมเดลอ่านชื่อ เช่น FR1, FR2, RE3
 SAM_CHECKPOINT = r"Model\sam_vit_h_4b8939.pth"
 SAM_TYPE = "vit_h"
-VIDEO_PATH = r"Video\N1WB-E042D95-AEDYACB25115110423_23_Side.avi"
+VIDEO_PATH = r"DATA\Room\N1WB-E042D95-AEDYACB25118210001_23_Side.avi"
 VIDEO_NAME = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
 OUTPUT_PATH = fr"Output\{VIDEO_NAME}_Timing_Detection.mp4"
 SCREENSHOT_DIR = os.path.join("Output", "Screenshots", VIDEO_NAME)
@@ -70,18 +70,35 @@ while cap.isOpened():
 
     if not done_detecting:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.medianBlur(gray, 5)
-        roi = gray[roi_top:roi_bottom, :]
+
+        # เพิ่ม contrast ด้วย CLAHE สำหรับภาพมืด
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+
+        # ปรับความเนียน
+        gray_blurred = cv2.GaussianBlur(gray[roi_top:roi_bottom, :], (9, 9), sigmaX=2, sigmaY=2)
+
+        # ปรับค่าพารามิเตอร์ HoughCircles ใหม่ให้เสถียรกว่าเดิม
         circles = cv2.HoughCircles(
-            roi, cv2.HOUGH_GRADIENT, dp=1.2, minDist=50, param1=100, param2=40, minRadius=5, maxRadius=30
+            gray_blurred,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=60,               # ป้องกันจุดซ้ำ
+            param1=80,                # edge detector threshold
+            param2=30,                # circle center sensitivity
+            minRadius=10,
+            maxRadius=35
         )
+
         if circles is not None:
-            circles = np.uint16(np.around(circles))
-            for c in circles[0, :]:
-                center = (c[0], c[1] + roi_top)
-                if is_far_enough(center, fixed_centers, min_dist=50):
+            circles = np.uint16(np.around(circles[0, :]))
+            for c in circles:
+                center = (c[0], c[1] + roi_top)  # อย่าลืมบวกกลับ
+                if is_far_enough(center, fixed_centers, min_dist=60):
                     fixed_centers.append(center)
                     print(f"[✓] Frame {frame_count}: Added center {center}")
+                else:
+                    print(f"⚠️ Center too close to existing: {center}")
         if len(fixed_centers) == 3:
             print("🔍 Trying to detect names...")
             name_detections = yolo_name_model.predict(
